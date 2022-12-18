@@ -1,0 +1,90 @@
+#!/bin/bash
+
+url=$1
+output_file=$2
+
+# License preamble at the end of the file
+# Version number
+dependencies=(curl sed grep iina)
+
+###################
+# DEFAULT OPTIONS #
+###################
+download_dir="$(pwd)/downloads"
+refr="https://www.mp4upload.com/"
+
+#######################
+# AUXILIARY FUNCTIONS #
+#######################
+
+#display error message and exit
+err() {
+	printf "\33[2K\r\033[1;31m%s\033[0m\n" "$*" >&2
+}
+
+die() {
+	err "$*"
+	exit 1
+}
+
+# checks if dependencies are present
+dep_ch() {
+	for dep; do
+		if ! command -v "$dep" >/dev/null; then
+			die "Program \"$dep\" not found. Please install it."
+		fi
+	done
+}
+
+find_mp4_server_link() {
+	curl -s "$1" -L |
+		sed -nE 's_^[[:space:]]*<li onClick=".*" class="mp4upload" id="mp4upload" data-video="([^"]*)" rel=.*>_\1_p'
+}
+
+get_video_token() {
+	curl -s "$1" -L |
+		grep -E '\|([A-Za-z0-9]{56})\|' -o | tr -d '||'
+}
+
+get_video_subserver() {
+	curl -s "$1" -L |
+		grep -E 'embed\|[a-z0-9]*\|_blank' -o | cut -f2 -d "|"
+}
+
+construct_link() {
+	echo https://"$1".mp4upload.com:282/d/"$2"/video.mp4
+}
+
+# Download kdrama
+download() {
+	mp4_server_link=$(find_mp4_server_link "$1")
+
+	if [ -z "$mp4_server_link" ]; then
+		die "This drama isn't support mp4upload server! Please wait for other media server to be supported by kdrama-cli!"
+	fi
+
+	video_token=$(get_video_token "$mp4_server_link")
+	video_server=$(get_video_subserver "$mp4_server_link")
+
+	# Making downloads directory... (if not exist)
+	[ -d "$download_dir" ] || mkdir "$download_dir"
+	link=$(construct_link "$video_server" "$video_token")
+
+	curl -k "$link" -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/109.0' -H 'Accept: video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5' -H 'Accept-Language: en-US,en;q=0.5' -H 'Range: bytes=0-' -H 'Connection: keep-alive' -H 'Referer: https://www.mp4upload.com/' -H 'Sec-Fetch-Dest: video' -H 'Sec-Fetch-Mode: no-cors' -H 'Sec-Fetch-Site: same-site' -H 'Accept-Encoding: identity' -o "$download_dir/$2.mp4"
+}
+
+stream() {
+	mp4_server_link=$(find_mp4_server_link "$1")
+	video_token=$(get_video_token "$mp4_server_link")
+	video_server=$(get_video_subserver "$mp4_server_link")
+
+	# Making downloads directory... (if not exist)
+	[ -d "$download_dir" ] || mkdir "$download_dir"
+	link=$(construct_link "$video_server" "$video_token")
+
+	# TODO: Currently only support macbook, support another player such as mp4 or vlc...
+	nohup iina "$link" --no-stdin --keep-running --mpv-referrer="$refr" --mpv-force-media-title="$2" >/dev/null 2>&1 &
+}
+
+dep_ch "${dependencies[@]}"
+download "$url" "$output_file"
